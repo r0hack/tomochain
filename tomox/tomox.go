@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
@@ -55,7 +56,7 @@ var DefaultConfig = Config{
 type TomoX struct {
 	// Order related
 	Orderbooks map[string]*OrderBook
-	db         OrderDao
+	db         TomoXDao
 
 	// P2P messaging related
 	protocol p2p.Protocol
@@ -420,6 +421,7 @@ func (tomox *TomoX) postEvent(envelope *Envelope, isP2P bool) error {
 	order := &Order{}
 	msg := envelope.Open()
 	err := json.Unmarshal(msg.Payload, &order)
+	order.db = tomox.db
 	if err != nil {
 		log.Error("Fail to parse envelope", "err", err)
 		return err
@@ -590,11 +592,15 @@ func (tomox *TomoX) getAndCreateIfNotExisted(pairName string) (*OrderBook, error
 
 	if !tomox.hasOrderBook(name) {
 		// then create one
-		ob := NewOrderBook(name)
-		if ob != nil {
-			//ob.Restore()
-			tomox.Orderbooks[name] = ob
+		ob := NewOrderBook(name, tomox.db)
+		tomox.Orderbooks[name] = ob
+	} else {
+		key := crypto.Keccak256([]byte(strings.ToLower(pairName)))
+		ob := &OrderBook{
+			key: key,
 		}
+		ob.Restore()
+		tomox.Orderbooks[name] = ob
 	}
 
 	// return from map
@@ -619,13 +625,13 @@ func (tomox *TomoX) ProcessOrder(order *Order) ([]map[string]string, *Order, err
 		// insert
 		if order.OrderID == 0 {
 			// Save order into orderbook tree.
-			//log.Info("Process saved")
-			//err := ob.SaveOrderPending(order)
+			log.Info("Saving order into pending")
+			ob.SaveOrderPending(order)
 			//if err != nil {
-			//	log.Error("Error Save Order Pending", "error", err)
+			//	log.Error("Error save order pending", "error", err)
 			//}
-			log.Info("Process order")
-			trades, orderInBook = ob.ProcessOrder(order, true)
+			//log.Info("Process order")
+			//trades, orderInBook = ob.ProcessOrder(order, true)
 		} else {
 			log.Info("Update order")
 			ob.UpdateOrder(order)

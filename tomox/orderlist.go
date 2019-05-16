@@ -4,6 +4,8 @@ import (
 	"math/big"
 
 	"github.com/HuKeping/rbtree"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 type OrderListBSON struct {
@@ -26,11 +28,12 @@ type OrderList struct {
 	price     *big.Int `json:"price"`
 	Key       []byte
 	slot      *big.Int
+	db        TomoXDao
 }
 
-func NewOrderList(price *big.Int) *OrderList {
+func NewOrderList(price *big.Int, db TomoXDao) *OrderList {
 	return &OrderList{headOrder: nil, tailOrder: nil, length: 0, volume: Zero(),
-		lastOrder: nil, price: price}
+		lastOrder: nil, price: price, db: db}
 }
 
 func (orderlist *OrderList) Less(than rbtree.Item) bool {
@@ -94,4 +97,36 @@ func (orderlist *OrderList) MoveToTail(order *Order) {
 	// Move Order to the last position. Link up the previous last position Order.
 	orderlist.tailOrder.NextOrder = order
 	orderlist.tailOrder = order
+}
+
+func (orderList *OrderList) SaveOrder(order *Order) error {
+	key := orderList.GetOrderID(order)
+	value, err := EncodeBytesItem(order)
+	if err != nil {
+		return err
+	}
+	log.Debug("Save order ", "key", key, "value", ToJSON(order))
+	return orderList.db.Put(key, value)
+}
+
+// GetOrderID return the real slot key of order in this linked list
+func (orderList *OrderList) GetOrderID(order *Order) []byte {
+	return orderList.GetOrderIDFromKey(order.Key)
+}
+
+// If we allow the same orderid belongs to many pricelist, we must use slot
+// otherwise just use 1 db for storing all orders of all pricelists
+// currently we use auto increase ment id so no need slot
+func (orderList *OrderList) GetOrderIDFromKey(key []byte) []byte {
+	orderSlot := new(big.Int).SetBytes(key)
+	return common.BigToHash(Add(orderList.slot, orderSlot)).Bytes()
+}
+
+func (orderList *OrderList) Save() error {
+	value, err := EncodeBytesItem(orderList)
+	if err != nil {
+		return err
+	}
+	log.Debug("Save orderlist ", "key", orderList.Key, "value", ToJSON(orderList))
+	return orderList.db.Put(orderList.Key, value)
 }

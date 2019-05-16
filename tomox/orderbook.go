@@ -3,9 +3,11 @@ package tomox
 import (
 	"math/big"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -22,18 +24,45 @@ const (
 )
 
 type OrderBook struct {
+	db          TomoXDao
 	bids        *OrderTree
 	asks        *OrderTree
 	time        uint64
 	nextOrderID uint64
 	pairName    string
+	key         []byte
+	slot        *big.Int
 }
 
 // NewOrderBook : return new order book
-func NewOrderBook(pairName string) *OrderBook {
-	bids := NewOrderTree()
-	asks := NewOrderTree()
-	return &OrderBook{bids, asks, 0, 0, pairName}
+func NewOrderBook(pairName string, db TomoXDao) *OrderBook {
+	// do slot with hash to prevent collision
+
+	// we convert to lower case, so even with name as contract address, it is still correct
+	// without converting back from hex to bytes
+	key := crypto.Keccak256([]byte(strings.ToLower(pairName)))
+	slot := new(big.Int).SetBytes(key)
+
+	// we just increase the segment at the most byte at address length level to avoid conflict
+	// somehow it is like 2 hashes has the same common prefix and it is very difficult to resolve
+	// the order id start at orderbook slot
+	// the price of order tree start at order tree slot
+	bidsKey := GetSegmentHash(key, 1, SlotSegment)
+	asksKey := GetSegmentHash(key, 2, SlotSegment)
+
+	bids := NewOrderTree(bidsKey, db)
+	asks := NewOrderTree(asksKey, db)
+
+	return &OrderBook{
+		bids:        bids,
+		asks:        asks,
+		time:        0,
+		nextOrderID: 0,
+		pairName:    strings.ToLower(pairName),
+		db:          db,
+		key:         key,
+		slot:        slot,
+	}
 }
 
 func (orderBook *OrderBook) UpdateTime() {
@@ -257,17 +286,15 @@ func (orderBook *OrderBook) VolumeAtPrice(side string, price *big.Int) *big.Int 
 //	return orderBook.db.Commit()
 //}
 //
-//func (orderBook *OrderBook) Restore() error {
-//	orderBook.Asks.Restore()
-//	orderBook.Bids.Restore()
-//
-//	val, err := orderBook.db.Get(orderBook.Key, orderBook.Item)
-//	if err == nil {
-//		orderBook.Item = val.(*OrderBookItem)
-//	}
-//
-//	return err
-//}
+func (orderBook *OrderBook) Restore() error {
+	val, err := orderBook.db.Get(orderBook.key, orderBook)
+	if err != nil {
+		return err
+	}
+	orderBook = val.(*OrderBook)
+	return nil
+}
+
 //
 //func (orderBook *OrderBook) GetOrderIDFromBook(key []byte) uint64 {
 //	orderSlot := new(big.Int).SetBytes(key)
@@ -493,29 +520,22 @@ func (orderBook *OrderBook) UpdateOrder(order *Order) {
 	orderBook.ModifyOrder(order, order.OrderID)
 }
 
-//// Save order pending into orderbook tree.
-//func (orderBook *OrderBook) SaveOrderPending(order *OrderItem) error {
-//	quantityToTrade := order.Quantity
-//	side := order.Side
-//	zero := Zero()
-//
-//	orderBook.UpdateTime()
-//	// if we do not use auto-increment orderid, we must set price slot to avoid conflict
-//	orderBook.Item.NextOrderID++
-//
-//	if side == Bid {
-//		if quantityToTrade.Cmp(zero) > 0 {
-//			order.OrderID = orderBook.Item.NextOrderID
-//			order.Quantity = quantityToTrade
-//			return orderBook.Bids.InsertOrder(order)
-//		}
-//	} else {
-//		if quantityToTrade.Cmp(zero) > 0 {
-//			order.OrderID = orderBook.Item.NextOrderID
-//			order.Quantity = quantityToTrade
-//			return orderBook.Asks.InsertOrder(order)
-//		}
-//	}
-//
-//	return nil
-//}
+// Save order pending into orderbook tree.
+func (orderBook *OrderBook) SaveOrderPending(order *Order) {
+	zero := Zero()
+	orderBook.UpdateTime()
+	// if we do not use auto-increment orderid, we must set price slot to avoid conflict
+	orderBook.nextOrderID++
+
+	if order.Side == Bid {
+		if order.Quantity.Cmp(zero) > 0 {
+			order.OrderID = orderBook.nextOrderID
+			orderBook.bids.InsertOrder(order)
+		}
+	} else {
+		if order.Quantity.Cmp(zero) > 0 {
+			order.OrderID = orderBook.nextOrderID
+			orderBook.asks.InsertOrder(order)
+		}
+	}
+}

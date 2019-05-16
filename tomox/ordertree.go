@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	rbt "github.com/emirpasic/gods/trees/redblacktree"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/maurodelazeri/orderbook/extend"
 )
 
@@ -25,25 +27,30 @@ type OrderTree struct {
 	priceTree *redblacktreeextended.RedBlackTreeExtended
 	priceMap  map[string]*OrderList // Dictionary containing price : OrderList object
 	orderMap  map[string]*Order     // Dictionary containing orderId : Order object
-	volume    *big.Int       // Contains total quantity from all Orders in tree
+	volume    *big.Int              // Contains total quantity from all Orders in tree
 	numOrders int                   // Contains count of Orders in tree
 	depth     int                   // Number of different prices in tree (http://en.wikipedia.org/wiki/Order_book_(trading)#Book_depth)
 	slot      *big.Int
 	Key       []byte
+	db        TomoXDao
 }
 
-func NewOrderTree() *OrderTree {
+func NewOrderTree(key []byte, db TomoXDao) *OrderTree {
+	slot := new(big.Int).SetBytes(key)
 	priceTree := &redblacktreeextended.RedBlackTreeExtended{rbt.NewWith(decimalComparator)}
 	priceMap := make(map[string]*OrderList)
 	orderMap := make(map[string]*Order)
 	return &OrderTree{
 		priceTree: priceTree,
-		priceMap: priceMap,
-		orderMap: orderMap,
-		volume: Zero(),
+		priceMap:  priceMap,
+		orderMap:  orderMap,
+		volume:    Zero(),
 		numOrders: 0,
-		depth: 0,
-		}
+		depth:     0,
+		Key:       key,
+		slot:      slot,
+		db:        db,
+	}
 }
 
 func (ordertree *OrderTree) Length() int {
@@ -60,7 +67,13 @@ func (ordertree *OrderTree) PriceList(price *big.Int) *OrderList {
 
 func (ordertree *OrderTree) CreatePrice(price *big.Int) {
 	ordertree.depth = ordertree.depth + 1
-	newList := NewOrderList(price)
+	newList := NewOrderList(price, ordertree.db)
+
+	// set key to the new orderlist
+	newList.Key = ordertree.getKeyFromPrice(price)
+	// set slot to the new orderlist
+	newList.slot = new(big.Int).SetBytes(crypto.Keccak256(newList.Key))
+
 	ordertree.priceTree.Put(price, newList)
 	ordertree.priceMap[price.String()] = newList
 }
@@ -140,7 +153,7 @@ func (ordertree *OrderTree) MinPriceList() *OrderList {
 	return nil
 }
 
-func (ordertree *OrderTree) InsertOrder(quote *Order) {
+func (ordertree *OrderTree) InsertOrder(quote *Order) error {
 	orderID := quote.OrderID
 
 	if ordertree.OrderExist(strconv.FormatUint(orderID, 10)) {
@@ -154,10 +167,34 @@ func (ordertree *OrderTree) InsertOrder(quote *Order) {
 		ordertree.CreatePrice(price)
 	}
 
-	order := NewOrder(quote, ordertree.priceMap[price.String()])
-	ordertree.priceMap[price.String()].AppendOrder(order)
+	orderlist := ordertree.priceMap[price.String()]
+	order := NewOrder(quote, orderlist)
+
+	// set order.Key
+	order.Key = GetKeyFromBig(new(big.Int).SetUint64(order.OrderID))
+	orderlist.AppendOrder(order)
+
+	// save order to DB
+	err := orderlist.SaveOrder(order)
+	if err != nil {
+		return err
+	}
+
+	// save orderlist to DB
+	err = orderlist.Save()
+	if err != nil {
+		return err
+	}
+
+	// save ordertree to DB
 	ordertree.orderMap[strconv.FormatUint(orderID, 10)] = order
 	ordertree.volume = Add(ordertree.volume, order.Quantity)
+	err = ordertree.Save()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (ordertree *OrderTree) UpdateOrder(quote *Order) {
@@ -180,4 +217,23 @@ func (ordertree *OrderTree) UpdateOrder(quote *Order) {
 	}
 	addedQuantity := Sub(order.Quantity, originalQuantity)
 	ordertree.volume = Add(ordertree.volume, addedQuantity)
+}
+
+// next time this price will be big.Int
+func (orderTree *OrderTree) getKeyFromPrice(price *big.Int) []byte {
+	orderListKey := orderTree.getSlotFromPrice(price)
+	return GetKeyFromBig(orderListKey)
+}
+
+func (orderTree *OrderTree) getSlotFromPrice(price *big.Int) *big.Int {
+	return Add(orderTree.slot, price)
+}
+
+func (orderTree *OrderTree) Save() error {
+	value, err := EncodeBytesItem(orderTree)
+	if err != nil {
+		return err
+	}
+	log.Debug("Save ordertree ", "key", orderTree.Key, "value", ToJSON(orderTree))
+	return orderTree.db.Put(orderTree.Key, value)
 }
