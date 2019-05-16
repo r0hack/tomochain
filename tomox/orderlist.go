@@ -20,12 +20,12 @@ type OrderListBSON struct {
 }
 
 type OrderList struct {
-	headOrder *Order   `json:"headOrder"`
-	tailOrder *Order   `json:"tailOrder"`
-	length    int      `json:"length"`
-	volume    *big.Int `json:"volume"`
-	lastOrder *Order   `json:"lastOrder"`
-	price     *big.Int `json:"price"`
+	headOrder *Order
+	tailOrder *Order
+	length    int
+	volume    *big.Int
+	lastOrder *Order
+	price     *big.Int
 	Key       []byte
 	slot      *big.Int
 	db        TomoXDao

@@ -45,7 +45,7 @@ type Order struct {
 	NextOrder *Order     `json:"-"`
 	PrevOrder *Order     `json:"-"`
 	OrderList *OrderList `json:"-"`
-	Key       []byte     `json:"orderID"`
+	Key       []byte
 	db        TomoXDao
 }
 
