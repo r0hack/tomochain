@@ -594,6 +594,10 @@ func (tomox *TomoX) getAndCreateIfNotExisted(pairName string) (*OrderBook, error
 		// then create one
 		ob := NewOrderBook(name, tomox.db)
 		tomox.Orderbooks[name] = ob
+
+		// save orderbook to DB
+		ob.Save()
+
 	} else {
 		key := crypto.Keccak256([]byte(strings.ToLower(pairName)))
 		ob := &OrderBook{

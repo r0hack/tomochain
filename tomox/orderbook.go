@@ -273,19 +273,23 @@ func (orderBook *OrderBook) VolumeAtPrice(side string, price *big.Int) *big.Int 
 	}
 }
 
-//func (orderBook *OrderBook) Save() error {
-//
-//	orderBook.Asks.Save()
-//	orderBook.Bids.Save()
-//
-//	return orderBook.db.Put(orderBook.Key, orderBook.Item)
-//}
-//
+func (orderBook *OrderBook) Save() error {
+	orderBook.asks.Save()
+	orderBook.bids.Save()
+
+	value, err := EncodeBytesItem(orderBook)
+	if err != nil {
+		return err
+	}
+	log.Debug("Save ordertree ", "key", orderBook.key, "value", ToJSON(orderBook))
+	return orderBook.db.Put(orderBook.key, value)
+}
+
 //// commit everything by trigger db.Commit, later we can map custom encode and decode based on item
 //func (orderBook *OrderBook) Commit() error {
 //	return orderBook.db.Commit()
 //}
-//
+
 func (orderBook *OrderBook) Restore() error {
 	val, err := orderBook.db.Get(orderBook.key, orderBook)
 	if err != nil {
@@ -538,4 +542,7 @@ func (orderBook *OrderBook) SaveOrderPending(order *Order) {
 			orderBook.asks.InsertOrder(order)
 		}
 	}
+
+	// save changes to orderbook
+	orderBook.Save()
 }
