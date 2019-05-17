@@ -1,6 +1,6 @@
 package tomox
 
-type OrderDao interface {
+type TomoXDao interface {
 	IsEmptyKey(key []byte) bool
 	Has(key []byte) (bool, error)
 	Get(key []byte, val interface{}) (interface{}, error)

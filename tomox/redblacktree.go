@@ -14,7 +14,7 @@ import (
 
 // Tree holds elements of the red-black tree
 type Tree struct {
-	db          OrderDao
+	db          TomoXDao
 	rootKey     []byte
 	size        uint64
 	Comparator  Comparator
@@ -22,7 +22,7 @@ type Tree struct {
 }
 
 // NewWith instantiates a red-black tree with the custom comparator.
-func NewWith(comparator Comparator, db OrderDao) *Tree {
+func NewWith(comparator Comparator, db TomoXDao) *Tree {
 	tree := &Tree{
 		Comparator: comparator,
 		db:         db,
@@ -31,7 +31,7 @@ func NewWith(comparator Comparator, db OrderDao) *Tree {
 	return tree
 }
 
-func NewWithBytesComparator(db OrderDao) *Tree {
+func NewWithBytesComparator(db TomoXDao) *Tree {
 	return NewWith(
 		bytes.Compare,
 		db,

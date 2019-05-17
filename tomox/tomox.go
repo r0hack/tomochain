@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
@@ -55,7 +56,7 @@ var DefaultConfig = Config{
 type TomoX struct {
 	// Order related
 	Orderbooks map[string]*OrderBook
-	db         OrderDao
+	db         TomoXDao
 
 	// P2P messaging related
 	protocol p2p.Protocol
@@ -417,9 +418,10 @@ func (tomox *TomoX) postEvent(envelope *Envelope, isP2P bool) error {
 		tomox.messageQueue <- envelope
 	}
 
-	order := &OrderItem{}
+	order := &Order{}
 	msg := envelope.Open()
 	err := json.Unmarshal(msg.Payload, &order)
+	order.db = tomox.db
 	if err != nil {
 		log.Error("Fail to parse envelope", "err", err)
 		return err
@@ -434,12 +436,11 @@ func (tomox *TomoX) postEvent(envelope *Envelope, isP2P bool) error {
 		log.Debug("Cancelled order", "detail", order)
 	} else {
 		log.Info("Save order", "detail", order)
-		trades, orderInBook, err := tomox.ProcessOrder(order)
+		err := tomox.ProcessOrder(order)
 		if err != nil {
 			log.Error("Can't process order", "err", err)
 			return err
 		}
-		log.Info("Orderbook result", "Trade", trades, "OrderInBook", orderInBook)
 	}
 	return nil
 }
@@ -591,58 +592,75 @@ func (tomox *TomoX) getAndCreateIfNotExisted(pairName string) (*OrderBook, error
 	if !tomox.hasOrderBook(name) {
 		// then create one
 		ob := NewOrderBook(name, tomox.db)
-		if ob != nil {
-			ob.Restore()
-			tomox.Orderbooks[name] = ob
+		tomox.Orderbooks[name] = ob
+
+		// save orderbook to DB
+		err := ob.Save()
+		if err != nil {
+			return nil, err
 		}
+	} else {
+		key := crypto.Keccak256([]byte(strings.ToLower(pairName)))
+		ob := &OrderBook{
+			key: key,
+		}
+
+		// restore orderbook from DB
+		err := ob.Restore()
+		if err != nil {
+			return nil, err
+		}
+		tomox.Orderbooks[name] = ob
 	}
 
 	// return from map
 	return tomox.Orderbooks[name], nil
 }
 
-func (tomox *TomoX) GetOrder(pairName, orderID string) *Order {
-	ob, _ := tomox.getAndCreateIfNotExisted(pairName)
-	if ob == nil {
-		return nil
-	}
-	key := GetKeyFromString(orderID)
-	return ob.GetOrder(key)
-}
+//func (tomox *TomoX) GetOrder(pairName, orderID string) *Order {
+//	ob, _ := tomox.getAndCreateIfNotExisted(pairName)
+//	if ob == nil {
+//		return nil
+//	}
+//	key := GetKeyFromString(orderID)
+//	return ob.GetOrder(key)
+//}
 
-func (tomox *TomoX) ProcessOrder(order *OrderItem) ([]map[string]string, *OrderItem, error) {
-	ob, _ := tomox.getAndCreateIfNotExisted(order.PairName)
-	var trades []map[string]string
-	var orderInBook *OrderItem
+func (tomox *TomoX) ProcessOrder(order *Order) error {
+	ob, err := tomox.getAndCreateIfNotExisted(order.PairName)
+	if err != nil {
+		return err
+	}
 
 	if ob != nil {
 		// insert
 		if order.OrderID == 0 {
 			// Save order into orderbook tree.
-			log.Info("Process saved")
-			err := ob.SaveOrderPending(order)
+			log.Info("Saving order into pending")
+			err = ob.SaveOrderPending(order)
 			if err != nil {
-				log.Error("Error Save Order Pending", "error", err)
+				log.Error("Error save order pending", "error", err)
+				return err
 			}
 			//log.Info("Process order")
 			//trades, orderInBook = ob.ProcessOrder(order, true)
 		} else {
 			log.Info("Update order")
-			err := ob.UpdateOrder(order)
-			if err != nil {
-				log.Error("Update order failed", "order", order, "err", err)
-				return trades, orderInBook, err
-			}
+			ob.UpdateOrder(order)
+			//if err != nil {
+			//	log.Error("Update order failed", "order", order, "err", err)
+			//	return trades, orderInBook, err
+			//}
 		}
 	}
 
-	return trades, orderInBook, nil
+	return nil
 }
 
-func (tomox *TomoX) CancelOrder(order *OrderItem) error {
+func (tomox *TomoX) CancelOrder(order *Order) error {
 	ob, err := tomox.getAndCreateIfNotExisted(order.PairName)
 	if ob != nil && err == nil {
-		return ob.CancelOrder(order)
+		ob.CancelOrder(order)
 	}
 
 	return err
@@ -653,7 +671,7 @@ func (tomox *TomoX) GetBidsTree(pairName string) (*OrderTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ob.Bids, nil
+	return ob.bids, nil
 }
 
 func (tomox *TomoX) GetAsksTree(pairName string) (*OrderTree, error) {
@@ -661,5 +679,5 @@ func (tomox *TomoX) GetAsksTree(pairName string) (*OrderTree, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ob.Asks, nil
+	return ob.asks, nil
 }
