@@ -8,17 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-type OrderListBSON struct {
-	HeadOrder string `json:"headOrder" bson:"headOrder"`
-	TailOrder string `json:"tailOrder" bson:"tailOrder"`
-	Length    string `json:"length" bson:"length"`
-	Volume    string `json:"volume" bson:"volume"`
-	LastOrder string `json:"lastOrder" bson:"lastOrder"`
-	Price     string `json:"price" bson:"price"`
-	Key       string
-	Slot      string
-}
-
 type OrderList struct {
 	headOrder *Order
 	tailOrder *Order
