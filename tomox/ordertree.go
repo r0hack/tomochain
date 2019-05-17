@@ -232,6 +232,7 @@ func (orderTree *OrderTree) getSlotFromPrice(price *big.Int) *big.Int {
 func (orderTree *OrderTree) Save() error {
 	value, err := EncodeBytesItem(orderTree)
 	if err != nil {
+		log.Error("Can't save ordertree", "value", value, "err", err)
 		return err
 	}
 	log.Debug("Save ordertree ", "key", orderTree.Key, "value", ToJSON(orderTree))

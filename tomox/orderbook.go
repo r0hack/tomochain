@@ -274,14 +274,21 @@ func (orderBook *OrderBook) VolumeAtPrice(side string, price *big.Int) *big.Int 
 }
 
 func (orderBook *OrderBook) Save() error {
-	orderBook.asks.Save()
-	orderBook.bids.Save()
-
-	value, err := EncodeBytesItem(orderBook)
+	err := orderBook.asks.Save()
 	if err != nil {
 		return err
 	}
-	log.Debug("Save ordertree ", "key", orderBook.key, "value", ToJSON(orderBook))
+	err = orderBook.bids.Save()
+	if err != nil {
+		return err
+	}
+
+	value, err := EncodeBytesItem(orderBook)
+	if err != nil {
+		log.Error("Can't save orderbook", "value", value, "err", err)
+		return err
+	}
+	log.Debug("Save orderbook ", "key", orderBook.key, "value", ToJSON(orderBook))
 	return orderBook.db.Put(orderBook.key, value)
 }
 
@@ -293,6 +300,7 @@ func (orderBook *OrderBook) Save() error {
 func (orderBook *OrderBook) Restore() error {
 	val, err := orderBook.db.Get(orderBook.key, orderBook)
 	if err != nil {
+		log.Error("Can't restore orderbook", "err", err)
 		return err
 	}
 	orderBook = val.(*OrderBook)
@@ -525,7 +533,7 @@ func (orderBook *OrderBook) UpdateOrder(order *Order) {
 }
 
 // Save order pending into orderbook tree.
-func (orderBook *OrderBook) SaveOrderPending(order *Order) {
+func (orderBook *OrderBook) SaveOrderPending(order *Order) error {
 	zero := Zero()
 	orderBook.UpdateTime()
 	// if we do not use auto-increment orderid, we must set price slot to avoid conflict
@@ -544,5 +552,9 @@ func (orderBook *OrderBook) SaveOrderPending(order *Order) {
 	}
 
 	// save changes to orderbook
-	orderBook.Save()
+	err := orderBook.Save()
+	if err != nil {
+		return err
+	}
+	return nil
 }

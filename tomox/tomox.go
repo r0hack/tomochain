@@ -436,12 +436,11 @@ func (tomox *TomoX) postEvent(envelope *Envelope, isP2P bool) error {
 		log.Debug("Cancelled order", "detail", order)
 	} else {
 		log.Info("Save order", "detail", order)
-		trades, orderInBook, err := tomox.ProcessOrder(order)
+		err := tomox.ProcessOrder(order)
 		if err != nil {
 			log.Error("Can't process order", "err", err)
 			return err
 		}
-		log.Info("Orderbook result", "Trade", trades, "OrderInBook", orderInBook)
 	}
 	return nil
 }
@@ -596,14 +595,21 @@ func (tomox *TomoX) getAndCreateIfNotExisted(pairName string) (*OrderBook, error
 		tomox.Orderbooks[name] = ob
 
 		// save orderbook to DB
-		ob.Save()
-
+		err := ob.Save()
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		key := crypto.Keccak256([]byte(strings.ToLower(pairName)))
 		ob := &OrderBook{
 			key: key,
 		}
-		ob.Restore()
+
+		// restore orderbook from DB
+		err := ob.Restore()
+		if err != nil {
+			return nil, err
+		}
 		tomox.Orderbooks[name] = ob
 	}
 
@@ -620,20 +626,22 @@ func (tomox *TomoX) getAndCreateIfNotExisted(pairName string) (*OrderBook, error
 //	return ob.GetOrder(key)
 //}
 
-func (tomox *TomoX) ProcessOrder(order *Order) ([]map[string]string, *Order, error) {
-	ob, _ := tomox.getAndCreateIfNotExisted(order.PairName)
-	var trades []map[string]string
-	var orderInBook *Order
+func (tomox *TomoX) ProcessOrder(order *Order) error {
+	ob, err := tomox.getAndCreateIfNotExisted(order.PairName)
+	if err != nil {
+		return err
+	}
 
 	if ob != nil {
 		// insert
 		if order.OrderID == 0 {
 			// Save order into orderbook tree.
 			log.Info("Saving order into pending")
-			ob.SaveOrderPending(order)
-			//if err != nil {
-			//	log.Error("Error save order pending", "error", err)
-			//}
+			err = ob.SaveOrderPending(order)
+			if err != nil {
+				log.Error("Error save order pending", "error", err)
+				return err
+			}
 			//log.Info("Process order")
 			//trades, orderInBook = ob.ProcessOrder(order, true)
 		} else {
@@ -646,7 +654,7 @@ func (tomox *TomoX) ProcessOrder(order *Order) ([]map[string]string, *Order, err
 		}
 	}
 
-	return trades, orderInBook, nil
+	return nil
 }
 
 func (tomox *TomoX) CancelOrder(order *Order) error {

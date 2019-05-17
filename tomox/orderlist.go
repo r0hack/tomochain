@@ -92,6 +92,7 @@ func (orderList *OrderList) SaveOrder(order *Order) error {
 	key := orderList.GetOrderID(order)
 	value, err := EncodeBytesItem(order)
 	if err != nil {
+		log.Error("Can't save order", "value", value, "err", err)
 		return err
 	}
 	log.Debug("Save order ", "key", key, "value", ToJSON(order))
@@ -114,6 +115,7 @@ func (orderList *OrderList) GetOrderIDFromKey(key []byte) []byte {
 func (orderList *OrderList) Save() error {
 	value, err := EncodeBytesItem(orderList)
 	if err != nil {
+		log.Error("Can't save orderlist", "value", value, "err", err)
 		return err
 	}
 	log.Debug("Save orderlist ", "key", orderList.Key, "value", ToJSON(orderList))
